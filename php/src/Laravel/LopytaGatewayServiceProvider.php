@@ -20,10 +20,10 @@ class LopytaGatewayServiceProvider extends ServiceProvider
             $primary = $app['config']->get('lopyta-gateway', []);
             $legacy = $app['config']->get('services.seo_gateway', []);
 
-            $clientId = trim((string) (($primary['client_id'] ?? '') ?: ($legacy['client_id'] ?? '')));
-            $clientSecret = trim((string) (($primary['client_secret'] ?? '') ?: ($legacy['client_secret'] ?? '')));
-            $baseUrl = trim((string) (($primary['url'] ?? '') ?: ($legacy['url'] ?? 'https://lopyta.com')));
-            $timeout = max(1, (int) (($primary['timeout'] ?? 0) ?: ($legacy['timeout'] ?? 30)));
+            $clientId = trim((string) (($primary['client_id'] ?? '') ?: ($legacy['client_id'] ?? env('SEO_GATEWAY_CLIENT_ID', ''))));
+            $clientSecret = trim((string) (($primary['client_secret'] ?? '') ?: ($legacy['client_secret'] ?? env('SEO_GATEWAY_CLIENT_SECRET', ''))));
+            $baseUrl = trim((string) (($primary['url'] ?? '') ?: ($legacy['url'] ?? env('SEO_GATEWAY_URL', 'https://lopyta.com'))));
+            $timeout = max(1, (int) (($primary['timeout'] ?? 0) ?: ($legacy['timeout'] ?? env('SEO_GATEWAY_TIMEOUT', 30))));
 
             $laravelTransport = static function (
                 string $method,
@@ -45,10 +45,10 @@ class LopytaGatewayServiceProvider extends ServiceProvider
 
                 try {
                     $pending = Http::withHeaders($headers)->timeout($timeoutSecs);
-                    $options = $jsonBody !== null
-                        ? ['body' => $jsonBody, 'headers' => ['Content-Type' => 'application/json']]
-                        : [];
-                    $response = $pending->send($method, $url, $options);
+                    if ($jsonBody !== null) {
+                        $pending = $pending->withBody($jsonBody, 'application/json');
+                    }
+                    $response = $pending->send($method, $url);
                 } catch (ConnectionException $e) {
                     throw new TransientGatewayException(
                         'Koneksi atau timeout ke Lopyta Gateway gagal: ' . $e->getMessage(),
