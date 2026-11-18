@@ -1,28 +1,40 @@
 # Lopyta Mail Gateway SDK (`lopyta-mail`)
 
-SDK resmi, **antrean retry persisten hingga 24 jam**, dan verifikator webhook HMAC-SHA256 untuk **Lopyta Centralized Email Gateway** (`https://lopyta.com`).
+Official SDK, **persistent 24-hour FIFO retry queue**, and **HMAC-SHA256 webhook verifier** for **Lopyta Centralized Email Gateway**.
 
-Mendukung dua ekosistem sekaligus dalam satu repositori (zero runtime dependency):
-- **Node.js / Next.js / Express / TypeScript** (`package.json` — ESM & CommonJS)
-- **PHP 8.1+ Native & Laravel 10/11/12** (`composer.json` — PSR-4 + Auto-Discovery ServiceProvider)
+Built with zero external runtime dependencies for both ecosystems in a single repository:
+- **Node.js / TypeScript / Next.js / Express** (`package.json` — Dual ESM & CommonJS + `.d.ts` declarations)
+- **PHP 8.1+ Native & Laravel 10 / 11 / 12 / 13** (`composer.json` — PSR-4 + Laravel Auto-Discovery)
 
 ---
 
-## 1. Instalasi Node.js / Next.js / Express
+## Features
 
-Karena repo ini bersifat public, Anda dapat menginstalnya langsung lewat GitHub (tanpa perlu publish ke npm registry):
+- **Zero Runtime Dependencies:** Uses native Node.js 18+ (`fetch`, `node:crypto`, `node:fs/promises`) and native PHP 8.1+ (`ext-curl`, `ext-json`, `hash_hmac`).
+- **Inline Fast Retry + Error Classification:** Automatically retries transient network blips / `408` / `429` / `5xx` responses, while failing fast on permanent `4xx` errors (`LopytaClientError` / `GatewayRejectedException`).
+- **Durable 24-Hour Retry Queue (FIFO):** Built-in client-side queue (`LopytaMailQueue` for Node.js and `FileRetryQueue` for PHP) keeps emails in FIFO order with progressive backoff up to 24 hours whenever the gateway is temporarily unreachable or undergoing maintenance.
+- **Bulk Broadcast Support:** Send personalized broadcasts to up to 25,000 recipients in a single HTTP request (and auto-chunk larger lists).
+- **Verified Webhooks:** Timing-safe `X-Gateway-Signature` verification with ready-to-use adapters for Next.js App Router, Express, PHP, and Laravel.
+
+---
+
+## 1. Node.js / Next.js / TypeScript
+
+### Installation
+
+Install directly from GitHub via HTTPS:
 
 ```bash
 npm install https://github.com/YOGA3321/lopyta-mail.git
 ```
 
-atau melalui SSH:
+Or pin a specific release tag (recommended for production):
 
 ```bash
-npm install git+ssh://git@github.com:YOGA3321/lopyta-mail.git
+npm install https://github.com/YOGA3321/lopyta-mail.git#v1.0.1
 ```
 
-### Konfigurasi `.env`
+### Environment Variables
 
 ```dotenv
 LOPYTA_GATEWAY_URL=https://lopyta.com
@@ -31,75 +43,80 @@ LOPYTA_GATEWAY_CLIENT_SECRET=sec_...
 LOPYTA_GATEWAY_WEBHOOK_SECRET=whsec_...
 ```
 
-*(Prefix `SEO_GATEWAY_*` juga otomatis dikenali jika aplikasi Anda sudah memakai variabel tersebut.)*
-
-### A. Pengiriman Langsung (Dengan Retry Kilat Inline)
+### Quick Start (Direct Send & Bulk Broadcast)
 
 ```ts
 import { LopytaMailClient } from "lopyta-mail";
 
 const mail = LopytaMailClient.fromEnv();
 
-// Email satuan -> membalas HTTP 202 (status: "queued")
-await mail.send({
-  to: { email: "penerima@example.com", name: "Budi" },
-  subject: "Konfirmasi Pendaftaran",
-  html: "<p>Halo Budi, pendaftaran berhasil.</p>",
+// 1. Send a single transactional email (returns 202 queued)
+const single = await mail.send({
+  to: { email: "recipient@example.com", name: "Alex" },
+  subject: "Welcome to Lopyta",
+  html: "<p>Hello Alex, your account is ready.</p>",
+  text: "Hello Alex, your account is ready.",
+  external_id: "welcome-101",
 });
 
-// Broadcast massal hingga 25.000 penerima dalam 1 HTTP JSON request
-await mail.broadcast({
-  subject: "Pengumuman Resmi",
-  html: "<p>Halo {{name}}, silakan cek portal.</p>",
-  external_batch_id: "event-12",
+// 2. Send a personalized bulk broadcast (1 HTTP JSON request up to 25,000 recipients)
+const batch = await mail.broadcast({
+  subject: "Monthly Update",
+  html: "<p>Hi {{name}}, check out our latest news.</p>",
+  external_batch_id: "newsletter-2026-11",
   recipients: [
-    { email: "satu@example.com", name: "Satu" },
-    { email: "dua@example.com", name: "Dua" },
+    { email: "one@example.com", name: "One", variables: { name: "One" } },
+    { email: "two@example.com", name: "Two", variables: { name: "Two" } },
   ],
 });
+
+// 3. Check client quota & global gateway rate limits
+const usage = await mail.usage();
 ```
 
-### B. Antrean Retry Persisten hingga 24 Jam (`LopytaMailQueue`)
+### Durable 24-Hour Retry Queue (`LopytaMailQueue`)
 
-Jika gateway `lopyta.com` sedang lag, terputus, atau maintenance, masukkan pengiriman ke `LopytaMailQueue`. Pekerjaan disimpan dengan urutan **FIFO (terlama ke terbaru)** dan di-retry bertahap hingga **24 jam**:
-- **VPS / Server Node.js / Express:** gunakan `FileQueueStorage` (disimpan aman di disk via atomic rename).
-- **Next.js Serverless / Multi-Instance:** gunakan `RedisQueueStorage` + cron endpoint setiap 1 menit.
+Queue outbound requests locally so your app never blocks user requests or drops mail during transient gateway downtime:
+
+- **`FileQueueStorage`**: Atomic file-backed persistence for single-server Node.js / Express / Docker apps (survives process restarts without Redis).
+- **`RedisQueueStorage`**: Shared state for Next.js / multi-instance / serverless deployments (accepts `ioredis`, `node-redis`, or Upstash clients).
+- **`MemoryQueueStorage`**: Ephemeral in-memory queue for scripts and tests.
 
 ```ts
-import { FileQueueStorage, LopytaMailClient, LopytaMailQueue } from "lopyta-mail";
+import {
+  FileQueueStorage,
+  LopytaMailClient,
+  LopytaMailQueue,
+} from "lopyta-mail";
 
 const client = LopytaMailClient.fromEnv();
+
 export const mailQueue = new LopytaMailQueue(client, {
   storage: new FileQueueStorage({ filePath: "./storage/lopyta-mail-queue.json" }),
-  maxAgeMs: 24 * 60 * 60 * 1000, // batas retry 24 jam
-  onSent: (job, res) => console.log("Terkirim ke gateway:", job.id, res),
-  onRetry: (job, err, delayMs) => console.warn(`Retry #${job.attempts} dlm ${delayMs}ms:`, err.message),
-  onFailed: (job, err) => console.error("Gagal permanen:", job.id, err.message),
+  maxAgeMs: 24 * 60 * 60 * 1000, // Retry transient failures up to 24 hours
+  onSent: (job, res) => console.log("Accepted by gateway:", job.id, res),
+  onRetry: (job, err, delayMs) =>
+    console.warn(`Retry #${job.attempts} scheduled in ${delayMs}ms: ${err.message}`),
+  onFailed: (job, err) => console.error("Permanent failure:", job.id, err.message),
 });
 
-// Di server Express / Node worker:
+// Option A: Background polling on a long-running Node.js / Express server
 mailQueue.start();
 
-// Saat user daftar (non-blocking: langsung masuk antrean lokal & coba kirim):
+// Non-blocking enqueue
 await mailQueue.enqueueSend({
   to: "user@example.com",
-  subject: "Selamat Datang",
-  html: "<p>Akun Anda aktif.</p>",
+  subject: "Order Confirmed",
+  html: "<p>Thank you for your order.</p>",
 });
+
+// Option B: Trigger manually from a Serverless Cron endpoint (e.g. every 1 minute)
+const stats = await mailQueue.processDueJobs();
 ```
 
-Di environment Serverless / Vercel Cron (mis. `app/api/cron/mail-queue/route.ts`):
+### Receiving Webhooks
 
-```ts
-export async function GET() {
-  const result = await mailQueue.processDueJobs();
-  return Response.json(result);
-}
-```
-
-### C. Menerima Webhook dari Gateway
-
-**Next.js App Router (`app/api/webhooks/email-gateway/route.ts`):**
+#### Next.js App Router (`app/api/webhooks/email-gateway/route.ts`)
 
 ```ts
 import { createNextWebhookHandler } from "lopyta-mail/nextjs";
@@ -107,25 +124,30 @@ import { createNextWebhookHandler } from "lopyta-mail/nextjs";
 export const POST = createNextWebhookHandler({
   webhookSecret: process.env.LOPYTA_GATEWAY_WEBHOOK_SECRET!,
   onEmailSent: async (data) => {
-    console.log("SES menerima:", data.gateway_message_id, data.recipient_email);
+    console.log("Sent via SES:", data.gateway_message_id, data.recipient_email);
   },
   onEmailDelivered: async (data) => {
-    console.log("Terkirim ke inbox tujuan:", data.recipient_email);
+    console.log("Delivered:", data.gateway_message_id, data.recipient_email);
   },
   onEmailFailed: async (data) => {
-    console.error("Bounce/Gagal:", data.recipient_email, data.error_message);
+    console.error("Failed/Bounced:", data.recipient_email, data.error_message);
+  },
+  onBatchProgress: async (batch) => {
+    console.log(`Batch ${batch.batch_id}: ${batch.sent_count}/${batch.total_recipients}`);
   },
   onBatchCompleted: async (batch) => {
-    console.log("Batch selesai:", batch.batch_id, batch.sent_count);
+    console.log("Batch completed:", batch.batch_id, batch.status);
   },
 });
 ```
 
-**Express:**
+#### Express
 
 ```ts
 import express from "express";
 import { createExpressWebhookMiddleware } from "lopyta-mail/express";
+
+const app = express();
 
 app.post(
   "/v1/webhooks/email-gateway",
@@ -133,7 +155,7 @@ app.post(
   createExpressWebhookMiddleware({
     webhookSecret: process.env.LOPYTA_GATEWAY_WEBHOOK_SECRET!,
     onEvent: async (envelope) => {
-      console.log(envelope.event, envelope.data);
+      console.log(envelope.event, envelope.delivery_id, envelope.data);
     },
   }),
 );
@@ -141,9 +163,11 @@ app.post(
 
 ---
 
-## 2. Instalasi PHP Native & Laravel (Composer)
+## 2. PHP Native & Laravel (Composer)
 
-Tambahkan repositori GitHub ini ke `composer.json` proyek PHP/Laravel Anda:
+### Installation
+
+Add the GitHub repository to your project's `composer.json`:
 
 ```json
 {
@@ -156,16 +180,17 @@ Tambahkan repositori GitHub ini ke `composer.json` proyek PHP/Laravel Anda:
 }
 ```
 
-Lalu jalankan:
+Then require the stable package release:
 
 ```bash
-composer require lopyta/mail-gateway:dev-main
+composer require lopyta/mail-gateway:^1.0
 ```
 
-### A. PHP Native + Antrean Retry File 24 Jam
+### A. PHP Native Usage (Client + Durable File Queue + Webhook Verifier)
 
 ```php
 <?php
+
 require __DIR__ . '/vendor/autoload.php';
 
 use Lopyta\MailGateway\Client;
@@ -173,66 +198,109 @@ use Lopyta\MailGateway\Queue\FileRetryQueue;
 use Lopyta\MailGateway\WebhookVerifier;
 
 $client = Client::fromEnv();
-$queue = new FileRetryQueue($client, __DIR__ . '/storage/mail-queue.json');
+$queue = new FileRetryQueue($client, __DIR__ . '/storage/lopyta-mail-queue.json');
 
-// Masukkan ke antrean persisten:
-$queue->enqueueSend([
-    'to' => ['email' => 'siswa@example.com', 'name' => 'Budi'],
-    'subject' => 'Info Ujian',
-    'html' => '<p>Jadwal ujian tersedia.</p>',
+// 1. Direct send
+$client->send([
+    'to' => ['email' => 'user@example.com', 'name' => 'Alex'],
+    'subject' => 'Verification Code',
+    'html' => '<p>Your code is <strong>123456</strong>.</p>',
 ]);
 
-// Jalankan dari cron tiap menit (php worker.php):
-$summary = $queue->processDueJobs();
+// 2. Persistent FIFO queue (retries up to 24 hours on gateway maintenance/timeout)
+$queue->enqueueSend([
+    'to' => 'user@example.com',
+    'subject' => 'Receipt',
+    'text' => 'Thank you for your payment.',
+]);
 
-// Verifikasi webhook masuk di endpoint PHP Native:
-$rawBody = file_get_contents('php://input');
-$sig = $_SERVER['HTTP_X_GATEWAY_SIGNATURE'] ?? null;
-$event = WebhookVerifier::parse($rawBody, $sig, getenv('LOPYTA_GATEWAY_WEBHOOK_SECRET'));
+// Run inside a 1-minute cron worker (e.g. `php worker.php`):
+$result = $queue->processDueJobs();
+
+// 3. Verify incoming webhook in your webhook endpoint
+$rawBody = file_get_contents('php://input') ?: '';
+$signature = $_SERVER['HTTP_X_GATEWAY_SIGNATURE'] ?? null;
+$event = WebhookVerifier::parse($rawBody, $signature, getenv('LOPYTA_GATEWAY_WEBHOOK_SECRET') ?: '');
 ```
 
-### B. Laravel (Auto-Discovery)
+### B. Laravel Integration (Auto-Discovery)
 
-ServiceProvider otomatis mendaftarkan driver mailer `lopyta-gateway`, trait retry 24 jam, dan macro route webhook:
+The package auto-discovers `Lopyta\MailGateway\Laravel\LopytaGatewayServiceProvider` and registers the `lopyta-gateway` mail driver automatically.
 
-```php
-// config/mail.php -> pastikan mailer tersedia atau set di .env:
-// MAIL_MAILER=lopyta-gateway
+1. Configure `.env`:
 
-// routes/web.php atau routes/api.php:
-Route::lopytaWebhook('/v1/webhooks/email-gateway');
+   ```dotenv
+   MAIL_MAILER=lopyta-gateway
+   LOPYTA_GATEWAY_URL=https://lopyta.com
+   LOPYTA_GATEWAY_CLIENT_ID=cli_...
+   LOPYTA_GATEWAY_CLIENT_SECRET=sec_...
+   LOPYTA_GATEWAY_WEBHOOK_SECRET=whsec_...
+   ```
 
-// Di Job / Queued Mailable agar otomatis retry hingga 24 jam saat gateway maintenance:
-class SendWelcomeJob implements ShouldQueue
-{
-    use \Lopyta\MailGateway\Laravel\RetriesOnGatewayMaintenance;
-}
-```
+2. Add the mailer entry in `config/mail.php`:
+
+   ```php
+   'mailers' => [
+       'lopyta-gateway' => [
+           'transport' => 'lopyta-gateway',
+       ],
+   ],
+   ```
+
+3. Use standard Laravel `Mail`:
+
+   ```php
+   Mail::to('user@example.com')->send(new WelcomeMail());
+   Mail::to('user@example.com')->queue(new WelcomeMail());
+   ```
+
+4. Add the 24-hour retry trait to queued Jobs or Mailables:
+
+   ```php
+   use Illuminate\Contracts\Queue\ShouldQueue;
+   use Lopyta\MailGateway\Laravel\RetriesOnGatewayMaintenance;
+
+   class SendNotificationJob implements ShouldQueue
+   {
+       use RetriesOnGatewayMaintenance;
+   }
+   ```
+
+5. Mount the built-in CSRF-exempt signed webhook endpoint & listen to `GatewayWebhookReceived`:
+
+   ```php
+   // routes/web.php
+   Route::lopytaWebhook('/v1/webhooks/email-gateway');
+   ```
+
+   ```php
+   use Illuminate\Support\Facades\Event;
+   use Lopyta\MailGateway\Laravel\Events\GatewayWebhookReceived;
+
+   Event::listen(GatewayWebhookReceived::class, function (GatewayWebhookReceived $webhook) {
+       // $webhook->event: 'email.sent', 'email.delivered', 'email.bounced', 'batch.completed', etc.
+       // $webhook->data: payload details including gateway_message_id & recipient_email
+   });
+   ```
 
 ---
 
-## 3. Cara Melakukan Update SDK ke Versi Baru
+## Webhook Events Reference
 
-1. Di folder `/home/yoga/mail-gateway`, setelah mengubah kode di `src/` atau `php/`:
-   ```bash
-   npm test
-   ```
-   *(Perintah `npm test` otomatis menjalankan `npm run build` agar folder `dist/` ikut diperbarui sebelum di-push.)*
-2. Commit, buat tag versi baru (opsional namun disarankan), lalu push ke GitHub:
-   ```bash
-   git add .
-   git commit -m "chore: update sdk v1.0.1"
-   git tag v1.0.1
-   git push origin main --tags
-   ```
-3. Di project **Next.js / Node.js** Anda, perbarui dependency dengan:
-   ```bash
-   npm update lopyta-mail
-   # atau kunci ke tag rilis tertentu:
-   npm install https://github.com/YOGA3321/lopyta-mail.git#v1.0.1
-   ```
-4. Di project **PHP / Laravel**, perbarui dengan:
-   ```bash
-   composer update lopyta/mail-gateway
-   ```
+| Event | Trigger |
+| --- | --- |
+| `email.sent` | Email accepted by AWS SES |
+| `email.delivered` | Delivery confirmed via AWS SNS |
+| `email.bounced` | Bounced by recipient mail server |
+| `email.complained` | Recipient marked as spam |
+| `email.rejected` | Rejected by AWS SES |
+| `email.delayed` | Temporary delivery delay reported by SES |
+| `email.failed` | Permanent gateway failure after retries exhausted |
+| `batch.progress` | Periodic progress update (every 25 processed recipients) |
+| `batch.completed` | Bulk broadcast batch finished |
 
+---
+
+## License
+
+MIT
