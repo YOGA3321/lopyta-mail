@@ -2,10 +2,13 @@
 
 namespace Lopyta\MailGateway\Laravel;
 
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Lopyta\MailGateway\Client;
+use Lopyta\MailGateway\Exceptions\TransientGatewayException;
 
 class LopytaGatewayServiceProvider extends ServiceProvider
 {
@@ -13,13 +16,58 @@ class LopytaGatewayServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__ . '/../../config/lopyta-gateway.php', 'lopyta-gateway');
 
-        $this->app->singleton(Client::class, function ($app) {
-            $cfg = $app['config']->get('lopyta-gateway', []);
+        $this->app->bind(Client::class, function ($app) {
+            $primary = $app['config']->get('lopyta-gateway', []);
+            $legacy = $app['config']->get('services.seo_gateway', []);
+
+            $clientId = trim((string) (($primary['client_id'] ?? '') ?: ($legacy['client_id'] ?? '')));
+            $clientSecret = trim((string) (($primary['client_secret'] ?? '') ?: ($legacy['client_secret'] ?? '')));
+            $baseUrl = trim((string) (($primary['url'] ?? '') ?: ($legacy['url'] ?? 'https://lopyta.com')));
+            $timeout = max(1, (int) (($primary['timeout'] ?? 0) ?: ($legacy['timeout'] ?? 30)));
+
+            $laravelTransport = static function (
+                string $method,
+                string $url,
+                array $headerLines,
+                ?string $jsonBody,
+                int $timeoutSecs
+            ): array {
+                $headers = [];
+                foreach ($headerLines as $line) {
+                    if (str_contains($line, ':')) {
+                        [$k, $v] = explode(':', $line, 2);
+                        $k = trim($k);
+                        if (strtolower($k) !== 'content-type') {
+                            $headers[$k] = trim($v);
+                        }
+                    }
+                }
+
+                try {
+                    $pending = Http::withHeaders($headers)->timeout($timeoutSecs);
+                    $options = $jsonBody !== null
+                        ? ['body' => $jsonBody, 'headers' => ['Content-Type' => 'application/json']]
+                        : [];
+                    $response = $pending->send($method, $url, $options);
+                } catch (ConnectionException $e) {
+                    throw new TransientGatewayException(
+                        'Koneksi atau timeout ke Lopyta Gateway gagal: ' . $e->getMessage(),
+                        null,
+                        $e
+                    );
+                }
+
+                return [$response->status(), $response->body()];
+            };
+
             return new Client(
-                (string) ($cfg['client_id'] ?? ''),
-                (string) ($cfg['client_secret'] ?? ''),
-                (string) ($cfg['url'] ?? 'https://lopyta.com'),
-                max(1, (int) ($cfg['timeout'] ?? 30))
+                $clientId,
+                $clientSecret,
+                $baseUrl !== '' ? $baseUrl : 'https://lopyta.com',
+                $timeout,
+                2,
+                400,
+                $laravelTransport
             );
         });
     }

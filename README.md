@@ -13,13 +13,13 @@ Mendukung dua ekosistem sekaligus dalam satu repositori (zero runtime dependency
 Karena repo ini bersifat public, Anda dapat menginstalnya langsung lewat GitHub (tanpa perlu publish ke npm registry):
 
 ```bash
-npm install https://github.com/YOGA3321/YOGA3321-lopyta-mail.git
+npm install https://github.com/YOGA3321/lopyta-mail.git
 ```
 
 atau melalui SSH:
 
 ```bash
-npm install git+ssh://git@github.com:YOGA3321/YOGA3321-lopyta-mail.git
+npm install git+ssh://git@github.com:YOGA3321/lopyta-mail.git
 ```
 
 ### Konfigurasi `.env`
@@ -150,7 +150,7 @@ Tambahkan repositori GitHub ini ke `composer.json` proyek PHP/Laravel Anda:
   "repositories": [
     {
       "type": "vcs",
-      "url": "https://github.com/YOGA3321/YOGA3321-lopyta-mail.git"
+      "url": "https://github.com/YOGA3321/lopyta-mail.git"
     }
   ]
 }
@@ -229,7 +229,7 @@ class SendWelcomeJob implements ShouldQueue
    ```bash
    npm update lopyta-mail
    # atau kunci ke tag rilis tertentu:
-   npm install https://github.com/YOGA3321/YOGA3321-lopyta-mail.git#v1.0.1
+   npm install https://github.com/YOGA3321/lopyta-mail.git#v1.0.1
    ```
 4. Di project **PHP / Laravel**, perbarui dengan:
    ```bash

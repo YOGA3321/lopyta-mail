@@ -15,7 +15,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOGA3321/YOGA3321-lopyta-mail.git"
+    "url": "https://github.com/YOGA3321/lopyta-mail.git"
   },
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",

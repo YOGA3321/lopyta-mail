@@ -21,8 +21,8 @@ class Client
     private $transport;
 
     public function __construct(
-        string $clientId,
-        string $clientSecret,
+        string $clientId = '',
+        string $clientSecret = '',
         string $baseUrl = 'https://lopyta.com',
         int $timeoutSeconds = 30,
         int $inlineMaxAttempts = 2,
@@ -30,17 +30,18 @@ class Client
         ?callable $transport = null
     ) {
         $base = rtrim(trim($baseUrl), '/');
-        if ($base === '' || trim($clientId) === '' || trim($clientSecret) === '') {
-            throw new \InvalidArgumentException('baseUrl, clientId, dan clientSecret Lopyta Gateway wajib diisi.');
-        }
-
-        $this->baseUrl = $base;
+        $this->baseUrl = $base !== '' ? $base : 'https://lopyta.com';
         $this->clientId = trim($clientId);
         $this->clientSecret = trim($clientSecret);
         $this->timeoutSeconds = max(1, $timeoutSeconds);
         $this->inlineMaxAttempts = max(1, $inlineMaxAttempts);
         $this->inlineDelayMs = max(50, $inlineDelayMs);
         $this->transport = $transport;
+    }
+
+    public function isConfigured(): bool
+    {
+        return $this->baseUrl !== '' && $this->clientId !== '' && $this->clientSecret !== '';
     }
 
     public static function fromEnv(): self
@@ -114,6 +115,14 @@ class Client
 
     protected function request(string $method, string $path, ?array $body = null, ?int $timeoutOverride = null): array
     {
+        if (!$this->isConfigured()) {
+            throw new GatewayRejectedException(
+                'Lopyta Mail Gateway belum dikonfigurasi (client_id atau client_secret kosong).',
+                400,
+                'not_configured'
+            );
+        }
+
         $url = $this->baseUrl . $path;
         $timeout = $timeoutOverride ?? $this->timeoutSeconds;
         $jsonBody = $body !== null ? json_encode($body, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) : null;

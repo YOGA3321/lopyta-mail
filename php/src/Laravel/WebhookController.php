@@ -12,7 +12,7 @@ class WebhookController
 {
     public function handle(Request $request): JsonResponse
     {
-        $secret = (string) config('lopyta-gateway.webhook_secret', '');
+        $secret = (string) (config('lopyta-gateway.webhook_secret') ?: config('services.seo_gateway.webhook_secret', ''));
 
         try {
             $parsed = WebhookVerifier::parse(

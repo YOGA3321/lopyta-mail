@@ -18,8 +18,8 @@
     "ext-json": "*"
   },
   "suggest": {
-    "illuminate/support": "Required when using the Laravel ServiceProvider and WebhookController (^10.0|^11.0|^12.0).",
-    "symfony/mailer": "Required when using LopytaGatewayTransport with Laravel Mail (^6.0|^7.0)."
+    "illuminate/support": "Required when using the Laravel ServiceProvider and WebhookController (^10.0|^11.0|^12.0|^13.0).",
+    "symfony/mailer": "Required when using LopytaGatewayTransport with Laravel Mail (^6.0|^7.0|^8.0)."
   },
   "autoload": {
     "psr-4": {
