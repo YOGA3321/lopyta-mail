@@ -1,0 +1,56 @@
+{
+  "name": "lopyta-mail",
+  "version": "1.0.0",
+  "description": "Official SDK, persistent 24-hour retry queue, and webhook verifier for Lopyta Centralized Email Gateway (Node.js, Next.js, Express, PHP Native & Laravel).",
+  "keywords": [
+    "lopyta",
+    "email-gateway",
+    "aws-ses",
+    "nextjs",
+    "laravel",
+    "webhook",
+    "queue",
+    "retry"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOGA3321/YOGA3321-lopyta-mail.git"
+  },
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/esm/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    },
+    "./nextjs": {
+      "types": "./dist/esm/adapters/nextjs.d.ts",
+      "import": "./dist/esm/adapters/nextjs.js",
+      "require": "./dist/cjs/adapters/nextjs.js"
+    },
+    "./express": {
+      "types": "./dist/esm/adapters/express.d.ts",
+      "import": "./dist/esm/adapters/express.js",
+      "require": "./dist/cjs/adapters/express.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.esm.json && tsc -p tsconfig.cjs.json && node -e \"const fs=require('fs');fs.writeFileSync('dist/esm/package.json',JSON.stringify({type:'module'},null,2)+'\\n');fs.writeFileSync('dist/cjs/package.json',JSON.stringify({type:'commonjs'},null,2)+'\\n');\"",
+    "test": "npm run build && node --test tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
